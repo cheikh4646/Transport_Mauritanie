@@ -1,17 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using BackendDotnet.Data;
 using BackendDotnet.DTOs;
 using BackendDotnet.Models;
+using BackendDotnet.Services;
 
 namespace BackendDotnet.Controllers
 {
@@ -21,12 +19,12 @@ namespace BackendDotnet.Controllers
     public class ReservationsController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IConfiguration _config;
+        private readonly QrCodeService _qrCodeService;
 
-        public ReservationsController(AppDbContext context, IConfiguration config)
+        public ReservationsController(AppDbContext context, QrCodeService qrCodeService)
         {
             _context = context;
-            _config = config;
+            _qrCodeService = qrCodeService;
         }
 
         // GET: api/reservations
@@ -88,7 +86,7 @@ namespace BackendDotnet.Controllers
 
             if (userRole == "TRAVELER" && r.UserId != userId)
             {
-                return Forbid("Vous n'êtes pas autorisé à voir cette réservation.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à voir cette réservation.");
             }
 
             if (userRole == "COMPANY")
@@ -96,7 +94,7 @@ namespace BackendDotnet.Controllers
                 var company = await _context.Companies.FirstOrDefaultAsync(c => c.ManagerId == userId);
                 if (company == null || r.Trip?.Bus?.CompanyId != company.Id)
                 {
-                    return Forbid("Vous n'êtes pas autorisé à voir cette réservation.");
+                    return StatusCode(403, "Vous n'êtes pas autorisé à voir cette réservation.");
                 }
             }
 
@@ -170,7 +168,7 @@ namespace BackendDotnet.Controllers
             if (reservation.Status == "PAID") return BadRequest("Cette réservation est déjà payée.");
 
             var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            if (reservation.UserId != userId) return Forbid("Vous n'êtes pas le propriétaire de cette réservation.");
+            if (reservation.UserId != userId) return StatusCode(403, "Vous n'êtes pas le propriétaire de cette réservation.");
 
             // Création du paiement (simulation)
             var payment = new Payment
@@ -189,45 +187,61 @@ namespace BackendDotnet.Controllers
             _context.Payments.Add(payment);
             _context.Entry(reservation).State = EntityState.Modified;
 
-            // Essayer d'appeler l'API Laravel pour la génération de billet
+            // Génération locale du billet avec QR code
+            var qrCode = $"TICKET-{id}-TRIP{reservation.TripId}-SEAT{reservation.SeatNumber}-{Guid.NewGuid().ToString()[..8].ToUpper()}";
+
+            var ticketHtml = GenerateTicketHtml(
+                id,
+                qrCode,
+                reservation.User?.Name ?? "Passager",
+                reservation.Trip?.DepartureCity ?? "",
+                reservation.Trip?.ArrivalCity ?? "",
+                reservation.Trip?.DepartureDate,
+                reservation.Trip?.DepartureTime.ToString() ?? "",
+                reservation.SeatNumber,
+                reservation.Trip?.Price ?? 0,
+                reservation.Trip?.Bus?.Company?.Name ?? ""
+            );
+
+            var pdfPath = await _qrCodeService.SaveTicketPdfAsync(ticketHtml, $"ticket_{id}.html");
+
             var ticket = new Ticket
             {
                 ReservationId = id,
-                QrCode = $"TICKET-{id}-TRIP{reservation.TripId}-SEAT{reservation.SeatNumber}-{Guid.NewGuid().ToString()[..8].ToUpper()}",
+                QrCode = qrCode,
+                PdfPath = pdfPath,
                 CreatedAt = DateTime.UtcNow
             };
-
-            try
-            {
-                using var client = new HttpClient();
-                var laravelUrl = _config["LaravelUrl"] ?? "http://localhost:8000";
-                
-                // Appel Laravel asynchrone (fictif/simulé ou réel)
-                var response = await client.PostAsJsonAsync($"{laravelUrl}/api/tickets/generate", new {
-                    reservation_id = id,
-                    qr_code = ticket.QrCode
-                });
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var responseData = await response.Content.ReadFromJsonAsync<LaravelTicketResponse>();
-                    ticket.PdfPath = responseData?.PdfPath;
-                }
-                else
-                {
-                    ticket.PdfPath = $"/tickets/ticket_{id}.pdf"; // Fallback local path
-                }
-            }
-            catch
-            {
-                // Fallback local en cas d'indisponibilité du service Laravel
-                ticket.PdfPath = $"/tickets/ticket_{id}.pdf";
-            }
 
             _context.Tickets.Add(ticket);
             await _context.SaveChangesAsync();
 
             return Ok(new { Message = "Paiement réussi et ticket généré.", Ticket = ticket });
+        }
+
+        // DELETE: api/reservations/{id}
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> CancelReservation(int id)
+        {
+            var reservation = await _context.Reservations.FirstOrDefaultAsync(r => r.Id == id);
+            if (reservation == null) return NotFound("Réservation non trouvée.");
+
+            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var userRole = User.FindFirstValue(ClaimTypes.Role);
+
+            if (userRole == "TRAVELER" && reservation.UserId != userId)
+                return StatusCode(403, "Vous n'êtes pas autorisé à annuler cette réservation.");
+
+            if (reservation.Status == "PAID" || reservation.Status == "PENDING")
+            {
+                reservation.Status = "CANCELLED";
+                reservation.UpdatedAt = DateTime.UtcNow;
+                _context.Entry(reservation).State = EntityState.Modified;
+                await _context.SaveChangesAsync();
+                return Ok(new { Message = "Réservation annulée avec succès." });
+            }
+
+            return BadRequest("Impossible d'annuler une réservation avec ce statut.");
         }
 
         // GET: api/reservations/scan/{qrCode} (Pour validation par la compagnie)
@@ -258,7 +272,7 @@ namespace BackendDotnet.Controllers
                 var company = await _context.Companies.FirstOrDefaultAsync(c => c.ManagerId == userId);
                 if (company == null || reservation.Trip?.Bus?.CompanyId != company.Id)
                 {
-                    return Forbid("Vous n'êtes pas autorisé à valider des billets pour une autre compagnie.");
+                    return StatusCode(403, "Vous n'êtes pas autorisé à valider des billets pour une autre compagnie.");
                 }
             }
 
@@ -304,9 +318,45 @@ namespace BackendDotnet.Controllers
             };
         }
 
-        private class LaravelTicketResponse
+        private static string GenerateTicketHtml(int reservationId, string qrCode, string passengerName,
+            string departureCity, string arrivalCity, DateTime? departureDate, string departureTime,
+            int seatNumber, decimal price, string companyName)
         {
-            public string PdfPath { get; set; } = string.Empty;
+            var date = departureDate?.ToString("yyyy-MM-dd") ?? "";
+            return $@"<html><head><meta charset='utf-8'><title>Billet de Transport</title>
+<style>
+body {{ font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #0b0f19; color: #f3f4f6; }}
+.ticket {{ max-width: 500px; margin: auto; background: #131a2e; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }}
+.header {{ background: linear-gradient(135deg, #059669, #047857); padding: 24px; text-align: center; }}
+.header h1 {{ margin: 0; font-size: 20px; letter-spacing: 2px; }}
+.header p {{ margin: 4px 0 0; font-size: 11px; opacity: 0.8; }}
+.body {{ padding: 24px; }}
+.info {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px; margin: 16px 0; }}
+.label {{ color: #9ca3af; font-size: 12px; }}
+.value {{ color: white; font-weight: bold; }}
+.route {{ text-align: center; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.08); }}
+.route h2 {{ margin: 0; font-size: 24px; color: white; }}
+.route span {{ color: #9ca3af; font-size: 12px; }}
+.footer {{ text-align: center; padding: 16px; font-size: 10px; color: #6b7280; border-top: 1px solid rgba(255,255,255,0.08); }}
+.qr {{ text-align: center; font-family: monospace; font-size: 10px; color: #6b7280; word-break: break-all; }}
+</style></head><body>
+<div class='ticket'>
+<div class='header'><h1>BILLET DE TRANSPORT</h1><p>{companyName}</p></div>
+<div class='body'>
+<div class='info'>
+<div><div class='label'>Passager</div><div class='value'>{passengerName}</div></div>
+<div><div class='label'>Référence</div><div class='value'>#{reservationId}</div></div>
+<div><div class='label'>Siège</div><div class='value'>N° {seatNumber}</div></div>
+<div><div class='label'>Prix</div><div class='value'>{price} MRU</div></div>
+</div>
+<div class='route'>
+<h2>{departureCity} → {arrivalCity}</h2>
+<span>{date} à {departureTime}</span>
+</div>
+<div class='qr'><p>Code: {qrCode}</p></div>
+</div>
+<div class='footer'>RIM Transport - Plateforme de Gestion du Transport Interurbain en Mauritanie</div>
+</div></body></html>";
         }
     }
 }

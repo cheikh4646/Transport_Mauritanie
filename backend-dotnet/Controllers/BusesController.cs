@@ -61,7 +61,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && bus.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à accéder aux informations de ce bus.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à accéder aux informations de ce bus.");
             }
 
             return bus;
@@ -104,7 +104,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && bus.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à modifier ce bus.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à modifier ce bus.");
             }
 
             bus.BusNumber = updatedBus.BusNumber;
@@ -133,7 +133,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && bus.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à supprimer ce bus.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à supprimer ce bus.");
             }
 
             _context.Buses.Remove(bus);

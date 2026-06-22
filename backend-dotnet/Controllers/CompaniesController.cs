@@ -84,7 +84,7 @@ namespace BackendDotnet.Controllers
 
             if (userRole == "COMPANY" && company.ManagerId != userId)
             {
-                return Forbid("Vous n'êtes pas autorisé à modifier cette compagnie.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à modifier cette compagnie.");
             }
 
             company.Name = updatedCompany.Name;

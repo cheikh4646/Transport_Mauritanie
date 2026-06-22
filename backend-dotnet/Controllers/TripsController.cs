@@ -148,7 +148,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && bus.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à utiliser ce bus pour un trajet.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à utiliser ce bus pour un trajet.");
             }
 
             var trip = new Trip
@@ -190,7 +190,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && (bus.CompanyId != companyId.Value || trip.Bus?.CompanyId != companyId.Value))
             {
-                return Forbid("Vous n'êtes pas autorisé à modifier ce trajet.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à modifier ce trajet.");
             }
 
             trip.BusId = dto.BusId;
@@ -221,7 +221,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && trip.Bus?.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à modifier le statut de ce trajet.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à modifier le statut de ce trajet.");
             }
 
             var validStatuses = new[] { "SCHEDULED", "ON_GOING", "ARRIVED", "CANCELLED" };
@@ -251,7 +251,7 @@ namespace BackendDotnet.Controllers
             var companyId = await GetUserCompanyIdAsync();
             if (companyId.HasValue && trip.Bus?.CompanyId != companyId.Value)
             {
-                return Forbid("Vous n'êtes pas autorisé à supprimer ce trajet.");
+                return StatusCode(403, "Vous n'êtes pas autorisé à supprimer ce trajet.");
             }
 
             _context.Trips.Remove(trip);

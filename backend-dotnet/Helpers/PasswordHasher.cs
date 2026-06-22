@@ -1,20 +1,22 @@
-using Microsoft.AspNetCore.Identity;
-
 namespace BackendDotnet.Helpers
 {
     public static class PasswordHasher
     {
-        private static readonly PasswordHasher<string> Hasher = new PasswordHasher<string>();
-
         public static string HashPassword(string password)
         {
-            return Hasher.HashPassword(string.Empty, password);
+            return BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
         }
 
         public static bool VerifyPassword(string password, string hashedPassword)
         {
-            var result = Hasher.VerifyHashedPassword(string.Empty, hashedPassword, password);
-            return result == PasswordVerificationResult.Success;
+            try
+            {
+                return BCrypt.Net.BCrypt.Verify(password, hashedPassword);
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

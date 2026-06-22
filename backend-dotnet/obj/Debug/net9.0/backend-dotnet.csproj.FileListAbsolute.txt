@@ -136,3 +136,4 @@ C:\Users\hp\Desktop\Transport en Mauritanie\backend-dotnet\obj\Debug\net9.0\refi
 C:\Users\hp\Desktop\Transport en Mauritanie\backend-dotnet\obj\Debug\net9.0\backend-dotnet.pdb
 C:\Users\hp\Desktop\Transport en Mauritanie\backend-dotnet\obj\Debug\net9.0\backend-dotnet.genruntimeconfig.cache
 C:\Users\hp\Desktop\Transport en Mauritanie\backend-dotnet\obj\Debug\net9.0\ref\backend-dotnet.dll
+C:\Users\hp\Desktop\Transport en Mauritanie\backend-dotnet\obj\Debug\net9.0\backend-dotnet.sourcelink.json
